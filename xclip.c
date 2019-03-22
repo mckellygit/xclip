@@ -23,6 +23,8 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <ctype.h>
+#include <sys/types.h>
+#include <fcntl.h>
 #ifdef HAVE_ICONV
 #include <errno.h>
 #include <iconv.h>
@@ -35,7 +37,7 @@
 #include "xclib.h"
 
 /* command line option table for XrmParseCommand() */
-XrmOptionDescRec opt_tab[14];
+XrmOptionDescRec opt_tab[17];
 
 /* Options that get set on the command line */
 int sloop = 0;			/* number of loops */
@@ -48,6 +50,9 @@ static int fverb = OSILENT;	/* output level */
 static int fdiri = T;		/* direction is in */
 static int ffilt = F;		/* filter mode */
 static int frmnl = F;		/* remove (single) newline character at the very end if present */
+char *spacechk = NULL;		/* spc file to check */
+int pausems = 0;            /* pause ms */
+static int fnofork = F;     /* daemon */
 
 Display *dpy;			/* connection to X11 display */
 XrmDatabase opt_db = NULL;	/* database for options */
@@ -105,6 +110,24 @@ doOptMain(int argc, char *argv[])
     if (XrmGetResource(opt_db, "xclip.rmlastnl", "Xclip.RmLastNl", &rec_typ, &rec_val)
 	) {
 	frmnl = T;
+    }
+
+    /* set add space mode */
+    if (XrmGetResource(opt_db, "xclip.spacechk", "Xclip.SpaceChk", &rec_typ, &rec_val)
+    ) {
+    spacechk = rec_val.addr;
+    }
+
+    /* set pause ms */
+    if (XrmGetResource(opt_db, "xclip.pausems", "Xclip.PauseMS", &rec_typ, &rec_val)
+    ) {
+    pausems = atoi(rec_val.addr);
+    }
+
+    /* in foreground */
+    if (XrmGetResource(opt_db, "xclip.nofork", "Xclip.NoFork", &rec_typ, &rec_val)
+    ) {
+    fnofork = T;
     }
 
     /* check for -help and -version */
@@ -265,6 +288,24 @@ doIn(Window win, const char *progname)
 	sel_len--;
     }
 
+    /* add space if necessary */
+    if (spacechk && sel_len) {
+        int add_space = 1;
+        int spacefd = open(spacechk, O_RDONLY);
+        if (spacefd >= 0) {
+            char spaceval = '1';
+            int spacerd = read(spacefd, &spaceval, 1);
+            if ( (spacerd == 1) && (spaceval == '0') )
+                add_space = 0;
+            close(spacefd);
+            // fprintf(stderr,"--- spacerd = %d spaceval = %c add_space = %d --- \n", spacerd, spaceval, add_space);
+        }
+        if (add_space) {
+            sel_buf[sel_len] = ' ';
+            sel_len++;
+        }
+    }
+
     /* if there are no files being read from (i.e., input
      * is from stdin not files, and we are in filter mode,
      * spit all the input back out to stdout
@@ -289,7 +330,7 @@ doIn(Window win, const char *progname)
     /* fork into the background, exit parent process if we
      * are in silent mode
      */
-    if (fverb == OSILENT) {
+    if ( (!fnofork) && (fverb == OSILENT) ) {
 	pid_t pid;
 
 	pid = fork();
@@ -311,9 +352,11 @@ doIn(Window win, const char *progname)
     }
 
     /* Avoid making the current directory in use, in case it will need to be umounted */
-    if (chdir("/") == -1) {
-	errperror(3, progname, ": ", "chdir to \"/\"");
-	return EXIT_FAILURE;
+    if (!fnofork) {
+        if (chdir("/") == -1) {
+        errperror(3, progname, ": ", "chdir to \"/\"");
+        return EXIT_FAILURE;
+        }
     }
 
     /* loop and wait for the expected number of
@@ -482,6 +525,24 @@ doOut(Window win)
 	sel_len--;
     }
 
+    /* add space if necessary */
+    if (spacechk && sel_len) {
+        int add_space = 1;
+        int spacefd = open(spacechk, O_RDONLY);
+        if (spacefd >= 0) {
+            char spaceval = '1';
+            int spacerd = read(spacefd, &spaceval, 1);
+            if ( (spacerd == 1) && (spaceval == '0') )
+                add_space = 0;
+            close(spacefd);
+            // fprintf(stderr,"--- spacerd = %d spaceval = %c add_space = %d --- \n", spacerd, spaceval, add_space);
+        }
+        if (add_space) {
+            sel_buf[sel_len] = ' ';
+            sel_len++;
+        }
+    }
+
     if (sel_len) {
 	/* only print the buffer out, and free it, if it's not
 	 * empty
@@ -595,6 +656,24 @@ main(int argc, char *argv[])
     opt_tab[13].argKind = XrmoptionNoArg;
     opt_tab[13].value = (XPointer) xcstrdup(ST);
 
+    /* append space */
+    opt_tab[14].option = xcstrdup("-sc");
+    opt_tab[14].specifier = xcstrdup(".SpaceChk");
+    opt_tab[14].argKind = XrmoptionSepArg;
+    opt_tab[14].value = (XPointer) NULL;
+
+    /* pause ms */
+    opt_tab[15].option = xcstrdup("-pausems");
+    opt_tab[15].specifier = xcstrdup(".PauseMS");
+    opt_tab[15].argKind = XrmoptionSepArg;
+    opt_tab[15].value = (XPointer) NULL;
+
+    /* in foreground */
+    opt_tab[16].option = xcstrdup("-nofork");
+    opt_tab[16].specifier = xcstrdup(".NoFork");
+    opt_tab[16].argKind = XrmoptionNoArg;
+    opt_tab[16].value = (XPointer) xcstrdup(ST);
+
     /* parse command line options */
     doOptMain(argc, argv);
 
@@ -628,6 +707,11 @@ main(int argc, char *argv[])
 
     /* Disconnect from the X server */
     XCloseDisplay(dpy);
+
+    // fprintf(stderr, "fnofork = %d  pausems = %d\n", fnofork, pausems);
+
+    if ( (fnofork) && (pausems > 0) )
+        usleep(pausems * 1000);
 
     /* exit */
     return exit_code;
