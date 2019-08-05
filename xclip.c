@@ -465,15 +465,8 @@ doIn(Window win, const char *progname)
 
 	    finished = xcin(dpy, &(requestor->cwin), evt, &(requestor->pty), target, sel_buf, sel_len, &(requestor->sel_pos), &(requestor->context), &(requestor->chunk_size));
 
-        // MCK - seem to need this or else it says running with other requestors
-        if (sloop > 0 && finished)
-            break;
-
 	    if (finished) {
 	    del_requestor(requestor);
-	    }
-
-	    if (!requestors) {
 	    break;
 	    }
 	}
