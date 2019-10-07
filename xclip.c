@@ -98,6 +98,8 @@ static struct requestor *get_requestor(Window win)
 	    errmalloc();
 	} else {
 	    requestor->context = XCLIB_XCIN_NONE;
+        // mck - large captures ...
+	    requestor->chunk_size = 20 * 1024 * 1024;
 	}
 
 	if (!requestors) {
