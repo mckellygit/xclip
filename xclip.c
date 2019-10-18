@@ -752,6 +752,9 @@ main(int argc, char *argv[])
     /* parse command line options */
     doOptMain(argc, argv);
 
+    if (sloop == 0 && fnofork)
+        sloop = 1;
+
     /* Connect to the X server. */
     if ((dpy = XOpenDisplay(sdisp))) {
 	/* successful */
